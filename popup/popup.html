@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>自动登录助手</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>自动登录助手</h1>
+      <button id="addSiteBtn" class="btn btn-primary">+ 添加网站</button>
+    </header>
+
+    <div class="current-page-info" id="currentPageInfo" style="display: none;">
+      <div class="info-item">
+        <span class="label">当前页面:</span>
+        <span class="value" id="currentUrl"></span>
+      </div>
+      <div class="info-item">
+        <span class="label">检测状态:</span>
+        <span class="value" id="detectionStatus"></span>
+      </div>
+      <button id="testFillBtn" class="btn btn-secondary">手动填充</button>
+    </div>
+
+    <div class="sites-list" id="sitesList">
+      <div class="empty-state" id="emptyState">
+        <p>还没有添加任何网站</p>
+        <p class="hint">点击"添加网站"开始使用</p>
+      </div>
+    </div>
+
+    <!-- 添加/编辑网站表单 -->
+    <div class="modal" id="siteModal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modalTitle">添加网站</h2>
+          <button class="close-btn" id="closeModalBtn">&times;</button>
+        </div>
+        <form id="siteForm">
+          <div class="form-group">
+            <label for="siteName">网站名称</label>
+            <input type="text" id="siteName" required placeholder="例如: 百度">
+          </div>
+          <div class="form-group">
+            <label for="urlPattern">URL 模式</label>
+            <input type="text" id="urlPattern" required placeholder="例如: https://www.baidu.com/login*">
+            <small class="hint">支持通配符 * 和 ?，如: https://example.com/login*</small>
+          </div>
+          <div class="form-group">
+            <label for="username">用户名</label>
+            <input type="text" id="username" required placeholder="输入用户名或邮箱">
+          </div>
+          <div class="form-group">
+            <label for="password">密码</label>
+            <input type="password" id="password" required placeholder="输入密码">
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="autoFill" checked>
+              <span>自动填充</span>
+            </label>
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="autoLogin">
+              <span>自动登录（填充后自动点击登录按钮）</span>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">取消</button>
+            <button type="submit" class="btn btn-primary" id="saveBtn">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
+
