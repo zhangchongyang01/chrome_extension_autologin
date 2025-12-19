@@ -11,6 +11,11 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// 点击扩展图标时打开侧边栏
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ windowId: tab.windowId });
+});
+
 // 处理消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getDecryptedCredentials') {

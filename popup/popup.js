@@ -13,6 +13,8 @@ class PopupManager {
     await this.loadSites();
     this.setupEventListeners();
     this.checkCurrentPage();
+    // 确保手动填充区域始终可见
+    this.ensureManualFillVisible();
   }
 
   /**
@@ -59,12 +61,36 @@ class PopupManager {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'getSites' });
       if (response && response.success) {
-        this.sites = response.sites;
+        this.sites = response.sites || [];
+        this.renderSites();
+      } else {
+        // 静默处理错误，不打印日志
+        this.sites = [];
         this.renderSites();
       }
     } catch (error) {
-      console.error('加载网站列表失败:', error);
+      // 静默处理错误，不打印日志
+      this.sites = [];
+      this.renderSites();
     }
+  }
+
+  /**
+   * 强制刷新网站列表
+   */
+  async refreshSitesList() {
+    // 清空当前列表
+    this.sites = [];
+    // 重新加载
+    await this.loadSites();
+    // 再次确保渲染
+    this.renderSites();
+    // 使用双重保险，确保列表更新
+    setTimeout(() => {
+      this.loadSites().then(() => {
+        this.renderSites();
+      });
+    }, 100);
   }
 
   /**
@@ -158,15 +184,26 @@ class PopupManager {
       document.getElementById('autoLogin').checked = false;
     }
 
-    modal.style.display = 'flex';
+    if (modal) {
+      modal.style.display = 'flex';
+    }
   }
 
   /**
    * 关闭模态框
    */
   closeModal() {
-    document.getElementById('siteModal').style.display = 'none';
-    document.getElementById('siteForm').reset();
+    const modal = document.getElementById('siteModal');
+    const form = document.getElementById('siteForm');
+    
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    
+    if (form) {
+      form.reset();
+    }
+    
     this.editingSiteId = null;
   }
 
@@ -196,17 +233,20 @@ class PopupManager {
         autoLogin
       };
 
-      if (this.editingSiteId) {
+        if (this.editingSiteId) {
         siteData.id = this.editingSiteId;
         const response = await chrome.runtime.sendMessage({
           action: 'updateSite',
           site: siteData
         });
         if (response && response.success) {
-          await this.loadSites();
+          // 先关闭模态框
           this.closeModal();
+          // 强制刷新列表
+          await this.refreshSitesList();
         } else {
-          alert('更新失败: ' + (response?.error || '未知错误'));
+          const errorMsg = response?.error || '未知错误';
+          alert('更新失败: ' + errorMsg);
         }
       } else {
         const response = await chrome.runtime.sendMessage({
@@ -214,15 +254,17 @@ class PopupManager {
           site: siteData
         });
         if (response && response.success) {
-          await this.loadSites();
+          // 先关闭模态框
           this.closeModal();
+          // 强制刷新列表
+          await this.refreshSitesList();
         } else {
-          alert('保存失败: ' + (response?.error || '未知错误'));
+          const errorMsg = response?.error || '未知错误';
+          alert('保存失败: ' + errorMsg);
         }
       }
     } catch (error) {
-      console.error('保存网站失败:', error);
-      alert('保存失败: ' + error.message);
+      alert('保存失败: ' + (error.message || '未知错误'));
     }
   }
 
@@ -242,7 +284,7 @@ class PopupManager {
           site.username = response.username;
         }
       } catch (error) {
-        console.error('获取用户名失败:', error);
+        // 静默处理错误
       }
       this.openModal(site);
     }
@@ -267,7 +309,7 @@ class PopupManager {
         alert('删除失败: ' + (response?.error || '未知错误'));
       }
     } catch (error) {
-      console.error('删除网站失败:', error);
+      // 静默处理错误
       alert('删除失败: ' + error.message);
     }
   }
@@ -278,12 +320,16 @@ class PopupManager {
   async checkCurrentPage() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab) return;
+      if (!tab) {
+        this.showManualFillWithError('无法获取当前标签页');
+        return;
+      }
 
       // 向 content script 发送消息检查页面
       chrome.tabs.sendMessage(tab.id, { action: 'checkPage' }, (response) => {
         if (chrome.runtime.lastError) {
-          // content script 可能未加载
+          // content script 可能未加载，但仍然显示手动填充按钮
+          this.showManualFillWithError('页面未加载或需要刷新');
           return;
         }
 
@@ -291,6 +337,12 @@ class PopupManager {
           const info = document.getElementById('currentPageInfo');
           const currentUrl = document.getElementById('currentUrl');
           const detectionStatus = document.getElementById('detectionStatus');
+
+          // 检查元素是否存在
+          if (!info || !currentUrl || !detectionStatus) {
+            // 元素不存在，静默处理
+            return;
+          }
 
           currentUrl.textContent = response.result.url;
           
@@ -308,11 +360,81 @@ class PopupManager {
           }
 
           info.style.display = 'block';
+        } else {
+          this.showManualFillWithError('无法检测页面状态');
         }
       });
     } catch (error) {
-      console.error('检查当前页面失败:', error);
+      // 静默处理错误
+      this.showManualFillWithError('检查页面时出错');
     }
+  }
+
+  /**
+   * 显示手动填充区域（带错误信息）
+   */
+  showManualFillWithError(message) {
+    const info = document.getElementById('currentPageInfo');
+    const currentUrl = document.getElementById('currentUrl');
+    const detectionStatus = document.getElementById('detectionStatus');
+
+    // 检查元素是否存在
+    if (!info || !currentUrl || !detectionStatus) {
+      // 元素不存在，静默处理
+      return;
+    }
+
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0] && currentUrl) {
+          currentUrl.textContent = tabs[0].url || '未知页面';
+        } else if (currentUrl) {
+          currentUrl.textContent = '无法获取页面URL';
+        }
+      });
+    } catch (e) {
+      if (currentUrl) {
+        currentUrl.textContent = '未知页面';
+      }
+    }
+
+    if (detectionStatus) {
+      detectionStatus.textContent = message || '⚠ 无法检测页面';
+      detectionStatus.className = 'value status-warning';
+    }
+    
+    if (info) {
+      info.style.display = 'block';
+    }
+  }
+
+  /**
+   * 确保手动填充区域可见
+   */
+  ensureManualFillVisible() {
+    // 如果检查页面失败，至少显示手动填充按钮
+    // 使用 requestAnimationFrame 确保 DOM 已准备好
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        // 检查模态框是否打开，如果打开则不执行
+        const modal = document.getElementById('siteModal');
+        if (modal && modal.style.display === 'flex') {
+          return; // 模态框打开时，不执行此操作
+        }
+        
+        const info = document.getElementById('currentPageInfo');
+        if (info) {
+          // 检查元素是否真的隐藏（包括内联样式和计算样式）
+          const computedStyle = window.getComputedStyle(info);
+          if (computedStyle.display === 'none' || info.style.display === 'none') {
+            this.showManualFillWithError('点击手动填充按钮进行填充');
+          }
+        } else {
+          // 如果元素不存在，静默处理，不显示警告
+          // 元素不存在，静默处理
+        }
+      }, 500);
+    });
   }
 
   /**
@@ -321,20 +443,28 @@ class PopupManager {
   async manualFill() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab) return;
+      if (!tab) {
+        alert('无法获取当前标签页');
+        return;
+      }
 
       chrome.tabs.sendMessage(tab.id, { action: 'manualFill' }, (response) => {
         if (chrome.runtime.lastError) {
-          alert('无法连接到页面，请刷新页面后重试');
+          alert('无法连接到页面，请刷新页面后重试。\n错误: ' + chrome.runtime.lastError.message);
           return;
         }
         if (response && response.success) {
           alert('填充成功！');
-          window.close();
+          // 如果是 popup，关闭窗口；如果是 sidepanel，不关闭
+          if (window.location.pathname.includes('popup')) {
+            window.close();
+          }
+        } else {
+          alert('填充失败，请检查页面是否有登录表单');
         }
       });
     } catch (error) {
-      console.error('手动填充失败:', error);
+      // 静默处理错误
       alert('填充失败: ' + error.message);
     }
   }
