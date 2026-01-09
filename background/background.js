@@ -43,6 +43,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
+  } else if (request.action === 'exportSites') {
+    handleExportSitesWithDownload()
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  } else if (request.action === 'importSites') {
+    handleImportSites(request.sites)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 });
 
@@ -323,3 +333,160 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
+/**
+ * 导出网站配置并使用 downloads API 下载
+ */
+async function handleExportSitesWithDownload() {
+  try {
+    const result = await chrome.storage.local.get(['sites']);
+    const sites = result.sites || [];
+    
+    if (sites.length === 0) {
+      return { success: false, error: '没有可导出的网站配置' };
+    }
+    
+    // 解密所有网站的凭证
+    const decryptedSites = await Promise.all(sites.map(async (site) => {
+      const username = await decryptValue(site.username);
+      const password = await decryptValue(site.password);
+      
+      return {
+        id: site.id,
+        name: site.name,
+        urlPattern: site.urlPattern,
+        username: username,
+        password: password,
+        autoFill: site.autoFill,
+        autoLogin: site.autoLogin
+      };
+    }));
+    
+    // 创建 JSON 数据
+    const exportData = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      sites: decryptedSites
+    };
+    
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    
+    // 将 JSON 字符串转换为 base64 data URL（Service Worker 中不能使用 FileReader）
+    const base64 = btoa(unescape(encodeURIComponent(jsonStr)));
+    const dataUrl = `data:application/json;base64,${base64}`;
+    
+    // 使用 downloads API 下载文件
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `autologin-config-${dateStr}.json`;
+    
+    await chrome.downloads.download({
+      url: dataUrl,
+      filename: filename,
+      saveAs: false
+    });
+    
+    return {
+      success: true,
+      count: decryptedSites.length,
+      filename: filename
+    };
+  } catch (error) {
+    console.error('导出并下载网站配置失败:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 导入网站配置
+ */
+async function handleImportSites(importedSites) {
+  try {
+    if (!Array.isArray(importedSites)) {
+      return { success: false, error: '导入数据格式错误：必须是数组' };
+    }
+    
+    // 验证数据格式
+    for (const site of importedSites) {
+      if (!site.name || !site.urlPattern || site.username === undefined || site.password === undefined) {
+        return { success: false, error: `网站配置格式错误：${site.name || '未知'}` };
+      }
+    }
+    
+    const result = await chrome.storage.local.get(['sites']);
+    const existingSites = result.sites || [];
+    
+    // 规范化并创建现有配置的 URL pattern 集合，用于去重
+    // 去除前后空格，确保比较准确
+    const existingUrlPatterns = new Set(
+      existingSites.map(s => (s.urlPattern || '').trim().toLowerCase())
+    );
+    
+    // 规范化导入的 URL pattern 并过滤出需要导入的配置（URL pattern 不存在的）
+    const sitesToImport = importedSites.filter(site => {
+      const normalizedPattern = (site.urlPattern || '').trim().toLowerCase();
+      return !existingUrlPatterns.has(normalizedPattern);
+    });
+    const skippedCount = importedSites.length - sitesToImport.length;
+    
+    // 调试日志
+    console.log('导入去重检查:', {
+      existingCount: existingSites.length,
+      importedCount: importedSites.length,
+      toImportCount: sitesToImport.length,
+      skippedCount: skippedCount,
+      existingPatterns: Array.from(existingUrlPatterns),
+      importedPatterns: importedSites.map(s => (s.urlPattern || '').trim().toLowerCase())
+    });
+    
+    if (sitesToImport.length === 0) {
+      return {
+        success: true,
+        importedCount: 0,
+        skippedCount: skippedCount,
+        totalCount: existingSites.length,
+        message: skippedCount > 0 ? `所有配置已存在，已跳过 ${skippedCount} 个重复配置` : '没有可导入的配置'
+      };
+    }
+    
+    // 加密需要导入的网站配置
+    const encryptedSites = await Promise.all(sitesToImport.map(async (site) => {
+      const encryptedUsername = await encryptValue(site.username);
+      const encryptedPassword = await encryptValue(site.password);
+      
+      return {
+        id: site.id || generateId(), // 如果没有 ID，生成新的
+        name: site.name,
+        urlPattern: site.urlPattern,
+        username: encryptedUsername,
+        password: encryptedPassword,
+        autoFill: site.autoFill !== undefined ? site.autoFill : true,
+        autoLogin: site.autoLogin !== undefined ? site.autoLogin : false
+      };
+    }));
+    
+    // 合并到现有配置（避免 ID 冲突）
+    const existingIds = new Set(existingSites.map(s => s.id));
+    const newSites = encryptedSites.map(site => {
+      // 如果 ID 已存在，生成新 ID
+      if (existingIds.has(site.id)) {
+        site.id = generateId();
+      }
+      existingIds.add(site.id);
+      return site;
+    });
+    
+    // 合并配置
+    const mergedSites = [...existingSites, ...newSites];
+    
+    await chrome.storage.local.set({ sites: mergedSites });
+    
+    return {
+      success: true,
+      importedCount: newSites.length,
+      skippedCount: skippedCount,
+      totalCount: mergedSites.length
+    };
+  } catch (error) {
+    console.error('导入网站配置失败:', error);
+    return { success: false, error: error.message };
+  }
+}

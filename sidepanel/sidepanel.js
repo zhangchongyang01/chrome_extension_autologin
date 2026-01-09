@@ -12,6 +12,7 @@ class SidePanelManager {
   async init() {
     await this.loadSites();
     this.setupEventListeners();
+    this.setupStorageListener();
     this.checkCurrentPage();
     // 确保手动填充区域始终可见
     this.ensureManualFillVisible();
@@ -52,6 +53,39 @@ class SidePanelManager {
         this.closeModal();
       }
     });
+
+    // 密码显示/隐藏切换按钮
+    document.getElementById('passwordToggleBtn').addEventListener('click', () => {
+      this.togglePasswordVisibility();
+    });
+
+    // 导出配置按钮
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      this.exportSites();
+    });
+
+    // 导入配置按钮
+    document.getElementById('importBtn').addEventListener('click', () => {
+      document.getElementById('importFileInput').click();
+    });
+
+    // 文件选择事件
+    document.getElementById('importFileInput').addEventListener('change', (e) => {
+      this.handleFileSelect(e);
+    });
+  }
+
+  /**
+   * 设置存储监听器
+   */
+  setupStorageListener() {
+    // 监听 storage 变化，自动刷新列表
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes.sites) {
+        // 当 sites 数据发生变化时，重新加载列表
+        this.loadSites();
+      }
+    });
   }
 
   /**
@@ -63,57 +97,62 @@ class SidePanelManager {
       if (response && response.success) {
         this.sites = response.sites || [];
         this.renderSites();
+        console.log('网站列表已刷新，共', this.sites.length, '个网站');
       } else {
-        // 静默处理错误，不打印日志
+        console.error('加载网站列表失败:', response?.error || '未知错误');
+        // 即使失败也尝试渲染空列表
         this.sites = [];
         this.renderSites();
       }
     } catch (error) {
-      // 静默处理错误，不打印日志
+      console.error('加载网站列表异常:', error);
+      // 发生异常时也尝试渲染空列表
       this.sites = [];
       this.renderSites();
     }
   }
 
   /**
-   * 强制刷新网站列表
-   */
-  async refreshSitesList() {
-    // 清空当前列表
-    this.sites = [];
-    // 重新加载
-    await this.loadSites();
-    // 再次确保渲染
-    this.renderSites();
-    // 使用双重保险，确保列表更新
-    setTimeout(() => {
-      this.loadSites().then(() => {
-        this.renderSites();
-      });
-    }, 100);
-  }
-
-  /**
    * 渲染网站列表
+   * @param {boolean} scrollToBottom - 是否滚动到底部
    */
-  renderSites() {
+  renderSites(scrollToBottom = false) {
     const sitesList = document.getElementById('sitesList');
     const emptyState = document.getElementById('emptyState');
 
-    if (this.sites.length === 0) {
-      emptyState.style.display = 'block';
-      sitesList.innerHTML = '';
-      sitesList.appendChild(emptyState);
+    if (!sitesList) {
+      console.error('sitesList 元素不存在');
       return;
     }
 
-    emptyState.style.display = 'none';
+    if (this.sites.length === 0) {
+      if (emptyState) {
+        emptyState.style.display = 'block';
+      }
+      sitesList.innerHTML = '';
+      if (emptyState) {
+        sitesList.appendChild(emptyState);
+      }
+      return;
+    }
+
+    if (emptyState) {
+      emptyState.style.display = 'none';
+    }
     sitesList.innerHTML = '';
 
     this.sites.forEach(site => {
       const siteItem = this.createSiteItem(site);
       sitesList.appendChild(siteItem);
     });
+
+    // 如果需要滚动到底部，在渲染完成后滚动
+    if (scrollToBottom) {
+      // 使用 setTimeout 确保 DOM 更新完成后再滚动
+      setTimeout(() => {
+        sitesList.scrollTop = sitesList.scrollHeight;
+      }, 0);
+    }
   }
 
   /**
@@ -175,8 +214,13 @@ class SidePanelManager {
       modalTitle.textContent = '编辑网站';
       document.getElementById('siteName').value = site.name;
       document.getElementById('urlPattern').value = site.urlPattern;
-      document.getElementById('username').value = '';
-      document.getElementById('password').value = '';
+      // 回显解密后的账号和密码
+      document.getElementById('username').value = site.username || '';
+      const passwordInput = document.getElementById('password');
+      passwordInput.value = site.password || '';
+      // 编辑模式下默认显示密码（明文）
+      passwordInput.type = 'text';
+      document.querySelector('.password-toggle-icon').textContent = '🙈';  // 眼睛闭合图标，表示当前是显示状态
       document.getElementById('autoFill').checked = site.autoFill;
       document.getElementById('autoLogin').checked = site.autoLogin;
     } else {
@@ -184,8 +228,12 @@ class SidePanelManager {
       this.editingSiteId = null;
       modalTitle.textContent = '添加网站';
       form.reset();
+      // 添加模式下密码输入框默认明文显示，与编辑模式一致
+      const passwordInput = document.getElementById('password');
+      passwordInput.type = 'text';
+      document.querySelector('.password-toggle-icon').textContent = '🙈';  // 眼睛闭合图标，表示当前是显示状态
       document.getElementById('autoFill').checked = true;
-      document.getElementById('autoLogin').checked = false;
+      document.getElementById('autoLogin').checked = true;
     }
 
     if (modal) {
@@ -197,18 +245,25 @@ class SidePanelManager {
    * 关闭模态框
    */
   closeModal() {
-    const modal = document.getElementById('siteModal');
-    const form = document.getElementById('siteForm');
-    
-    if (modal) {
-      modal.style.display = 'none';
-    }
-    
-    if (form) {
-      form.reset();
-    }
-    
+    document.getElementById('siteModal').style.display = 'none';
+    document.getElementById('siteForm').reset();
     this.editingSiteId = null;
+  }
+
+  /**
+   * 切换密码显示/隐藏
+   */
+  togglePasswordVisibility() {
+    const passwordInput = document.getElementById('password');
+    const toggleIcon = document.querySelector('.password-toggle-icon');
+    
+    if (passwordInput.type === 'password') {
+      passwordInput.type = 'text';
+      toggleIcon.textContent = '🙈';  // 眼睛闭合图标，表示当前是显示状态
+    } else {
+      passwordInput.type = 'password';
+      toggleIcon.textContent = '👁️';  // 眼睛睁开图标，表示当前是隐藏状态
+    }
   }
 
   /**
@@ -244,13 +299,18 @@ class SidePanelManager {
           site: siteData
         });
         if (response && response.success) {
-          // 先关闭模态框
+          // 直接更新本地列表中的网站
+          const index = this.sites.findIndex(s => s.id === this.editingSiteId);
+          if (index !== -1 && response.site) {
+            this.sites[index] = response.site;
+            this.renderSites();
+          } else {
+            // 如果找不到，重新加载列表
+            await this.loadSites();
+          }
           this.closeModal();
-          // 强制刷新列表
-          await this.refreshSitesList();
         } else {
-          const errorMsg = response?.error || '未知错误';
-          alert('更新失败: ' + errorMsg);
+          alert('更新失败: ' + (response?.error || '未知错误'));
         }
       } else {
         const response = await chrome.runtime.sendMessage({
@@ -258,13 +318,25 @@ class SidePanelManager {
           site: siteData
         });
         if (response && response.success) {
-          // 先关闭模态框
+          // 直接添加新网站到本地列表
+          if (response.site) {
+            this.sites.push(response.site);
+            // 添加成功后，滚动到底部显示最新添加的元素
+            this.renderSites(true);
+          } else {
+            // 如果响应中没有网站数据，重新加载列表
+            await this.loadSites();
+            // 加载完成后也滚动到底部
+            const sitesList = document.getElementById('sitesList');
+            if (sitesList) {
+              setTimeout(() => {
+                sitesList.scrollTop = sitesList.scrollHeight;
+              }, 100);
+            }
+          }
           this.closeModal();
-          // 强制刷新列表
-          await this.refreshSitesList();
         } else {
-          const errorMsg = response?.error || '未知错误';
-          alert('保存失败: ' + errorMsg);
+          alert('保存失败: ' + (response?.error || '未知错误'));
         }
       }
     } catch (error) {
@@ -278,7 +350,7 @@ class SidePanelManager {
   async editSite(siteId) {
     const site = this.sites.find(s => s.id === siteId);
     if (site) {
-      // 获取解密后的用户名（密码需要重新输入）
+      // 获取解密后的用户名和密码
       try {
         const response = await chrome.runtime.sendMessage({
           action: 'getDecryptedCredentials',
@@ -286,9 +358,10 @@ class SidePanelManager {
         });
         if (response && response.success) {
           site.username = response.username;
+          site.password = response.password;
         }
       } catch (error) {
-        // 静默处理错误
+        console.error('获取凭证失败:', error);
       }
       this.openModal(site);
     }
@@ -469,6 +542,130 @@ class SidePanelManager {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  /**
+   * 导出网站配置
+   */
+  async exportSites() {
+    try {
+      // 使用 downloads API，在 background script 中处理下载，避免 popup 关闭导致的问题
+      const response = await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('导出超时，请重试'));
+        }, 10000);
+        
+        chrome.runtime.sendMessage({ action: 'exportSites' }, (response) => {
+          clearTimeout(timeoutId);
+          
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          
+          resolve(response);
+        });
+      });
+      
+      if (!response) {
+        alert('导出失败: 未收到响应');
+        return;
+      }
+      
+      if (response.success) {
+        alert(`成功导出 ${response.count} 个网站配置\n文件已保存为: ${response.filename}`);
+      } else {
+        const errorMsg = response?.error || '未知错误';
+        console.error('导出失败:', errorMsg);
+        alert('导出失败: ' + errorMsg);
+      }
+    } catch (error) {
+      console.error('导出配置失败:', error);
+      alert('导出失败: ' + error.message);
+    }
+  }
+
+  /**
+   * 处理文件选择
+   */
+  async handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    // 重置文件输入
+    event.target.value = '';
+
+    try {
+      const text = await file.text();
+      const importData = JSON.parse(text);
+      
+      // 验证数据格式
+      if (!importData.sites || !Array.isArray(importData.sites)) {
+        alert('导入失败: 文件格式错误，缺少 sites 数组');
+        return;
+      }
+
+      if (importData.sites.length === 0) {
+        alert('导入失败: 文件中没有网站配置');
+        return;
+      }
+
+      // 确认导入
+      const confirmMsg = `确定要导入 ${importData.sites.length} 个网站配置吗？\n导入的配置将添加到现有配置中。`;
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      // 调用导入接口
+      const response = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: 'importSites',
+          sites: importData.sites
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          resolve(response);
+        });
+      });
+
+      if (!response) {
+        alert('导入失败: 未收到响应');
+        return;
+      }
+
+      if (response.success) {
+        let message = '';
+        if (response.message) {
+          // 如果所有配置都已存在
+          message = response.message;
+        } else {
+          // 有新的配置导入
+          message = `成功导入 ${response.importedCount} 个网站配置`;
+          if (response.skippedCount > 0) {
+            message += `\n已跳过 ${response.skippedCount} 个重复配置`;
+          }
+          message += `\n当前共有 ${response.totalCount} 个网站配置`;
+        }
+        alert(message);
+        // 刷新列表
+        await this.loadSites();
+      } else {
+        const errorMsg = response?.error || '未知错误';
+        console.error('导入失败:', errorMsg);
+        alert('导入失败: ' + errorMsg);
+      }
+    } catch (error) {
+      console.error('导入配置失败:', error);
+      if (error instanceof SyntaxError) {
+        alert('导入失败: JSON 格式错误');
+      } else {
+        alert('导入失败: ' + error.message);
+      }
+    }
   }
 }
 

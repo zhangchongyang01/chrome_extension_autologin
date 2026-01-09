@@ -256,8 +256,35 @@ class AutoLoginContent {
     if (!this.elements || !this.elements.loginButton) return;
 
     try {
-      // 触发点击事件
-      this.elements.loginButton.click();
+      const button = this.elements.loginButton;
+      
+      // 对于 Angular 等框架，需要触发多个事件以确保变更检测正常工作
+      // 触发 mousedown 事件
+      const mouseDownEvent = new MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+      button.dispatchEvent(mouseDownEvent);
+      
+      // 触发 mouseup 事件
+      const mouseUpEvent = new MouseEvent('mouseup', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+      button.dispatchEvent(mouseUpEvent);
+      
+      // 触发 click 事件
+      const clickEvent = new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+      button.dispatchEvent(clickEvent);
+      
+      // 最后调用原生的 click 方法作为备用
+      button.click();
     } catch (error) {
       console.error('点击登录按钮失败:', error);
     }

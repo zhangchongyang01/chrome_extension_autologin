@@ -10,8 +10,15 @@
   <div class="container">
     <header class="header">
       <h1>自动登录助手</h1>
-      <button id="addSiteBtn" class="btn btn-primary">+ 添加网站</button>
+      <div class="header-actions">
+        <button id="exportBtn" class="btn btn-icon-header" title="导出配置">⬆️</button>
+        <button id="importBtn" class="btn btn-icon-header" title="导入配置">⬇️</button>
+        <button id="addSiteBtn" class="btn btn-primary">+ 添加网站</button>
+      </div>
     </header>
+    
+    <!-- 隐藏的文件输入元素用于导入 -->
+    <input type="file" id="importFileInput" accept=".json" style="display: none;">
 
     <div class="current-page-info" id="currentPageInfo" style="display: none;">
       <div class="info-item">
@@ -55,7 +62,12 @@
           </div>
           <div class="form-group">
             <label for="password">密码</label>
-            <input type="password" id="password" required placeholder="输入密码">
+            <div class="password-input-wrapper">
+              <input type="password" id="password" required placeholder="输入密码">
+              <button type="button" class="password-toggle-btn" id="passwordToggleBtn" title="显示/隐藏密码">
+                <span class="password-toggle-icon">👁️</span>
+              </button>
+            </div>
           </div>
           <div class="form-group checkbox-group">
             <label>

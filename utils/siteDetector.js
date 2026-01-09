@@ -22,6 +22,33 @@ class SiteDetector {
   }
 
   /**
+   * 通过文本内容查找按钮
+   * @param {string[]} keywords - 要匹配的关键词数组
+   * @param {NodeList|Array} elements - 要搜索的元素集合，如果不提供则搜索所有按钮
+   * @returns {HTMLElement|null} 找到的按钮元素，如果没找到返回 null
+   */
+  findButtonByText(keywords, elements = null) {
+    // 如果没有提供元素集合，搜索所有按钮、提交输入和链接
+    if (!elements) {
+      elements = document.querySelectorAll('button, input[type="submit"], a[class*="btn"], a[class*="button"]');
+    }
+
+    for (const element of elements) {
+      // 获取元素的文本内容（包括子元素）
+      const text = (element.textContent || element.value || element.innerText || '').trim().toLowerCase();
+      
+      // 检查是否包含任何关键词
+      for (const keyword of keywords) {
+        if (text.includes(keyword.toLowerCase())) {
+          return element;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * 检测页面是否存在登录表单元素
    */
   detectLoginElements() {
@@ -59,14 +86,17 @@ class SiteDetector {
     const loginButtonSelectors = [
       'button[type="submit"]',
       'input[type="submit"]',
-      'button:contains("登录")',
-      'button:contains("登陆")',
-      'button:contains("Login")',
-      'button:contains("Sign in")',
-      'a:contains("登录")',
-      '[class*="login" i]',
-      '[id*="login" i]',
-      '[class*="submit" i]'
+      // Ant Design 按钮选择器
+      'button.ant-btn-primary',
+      'button[nztype="primary"]',
+      'button[class*="btn-primary" i]',
+      'button[class*="ant-btn-primary" i]',
+      // 通用按钮选择器
+      'button[class*="login" i]',
+      'button[id*="login" i]',
+      'button[class*="submit" i]',
+      'a[class*="login" i]',
+      'a[id*="login" i]'
     ];
 
     let loginButton = null;
@@ -78,7 +108,7 @@ class SiteDetector {
           const text = (loginButton.textContent || loginButton.value || '').toLowerCase();
           if (text.includes('登录') || text.includes('登陆') || 
               text.includes('login') || text.includes('sign in') ||
-              selector.includes('submit')) {
+              selector.includes('submit') || selector.includes('primary')) {
             break;
           }
         }
@@ -87,12 +117,27 @@ class SiteDetector {
       }
     }
 
-    // 如果没找到，尝试更通用的方法
+    // 如果没找到，尝试通过文本内容查找按钮
+    if (!loginButton) {
+      loginButton = this.findButtonByText(['登录', '登陆', 'Login', 'Sign in', 'Sign In']);
+    }
+
+    // 如果还没找到，尝试在表单内查找
     if (!loginButton) {
       const forms = document.querySelectorAll('form');
       for (const form of forms) {
         if (form.querySelector('input[type="password"]')) {
+          // 先尝试标准选择器
           loginButton = form.querySelector('button[type="submit"], input[type="submit"]');
+          if (loginButton) break;
+          
+          // 再尝试 Ant Design 按钮
+          loginButton = form.querySelector('button.ant-btn-primary, button[nztype="primary"]');
+          if (loginButton) break;
+          
+          // 最后尝试文本匹配
+          const formButtons = form.querySelectorAll('button, input[type="submit"], a');
+          loginButton = this.findButtonByText(['登录', '登陆', 'Login', 'Sign in', 'Sign In'], formButtons);
           if (loginButton) break;
         }
       }
