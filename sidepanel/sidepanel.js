@@ -6,6 +6,9 @@ class SidePanelManager {
   constructor() {
     this.sites = [];
     this.editingSiteId = null;
+    this.searchKeyword = '';
+    this.currentPage = 1;
+    this.pageSize = 10;
     this.init();
   }
 
@@ -73,6 +76,30 @@ class SidePanelManager {
     document.getElementById('importFileInput').addEventListener('change', (e) => {
       this.handleFileSelect(e);
     });
+
+    // 搜索输入事件
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      this.searchKeyword = e.target.value.trim();
+      this.currentPage = 1;
+      this.renderSites();
+    });
+
+    // 分页按钮事件
+    document.getElementById('prevPageBtn').addEventListener('click', () => {
+      if (this.currentPage > 1) {
+        this.currentPage--;
+        this.renderSites();
+      }
+    });
+
+    document.getElementById('nextPageBtn').addEventListener('click', () => {
+      const filtered = this.getFilteredSites();
+      const totalPages = Math.ceil(filtered.length / this.pageSize);
+      if (this.currentPage < totalPages) {
+        this.currentPage++;
+        this.renderSites();
+      }
+    });
   }
 
   /**
@@ -113,9 +140,19 @@ class SidePanelManager {
   }
 
   /**
-   * 渲染网站列表
-   * @param {boolean} scrollToBottom - 是否滚动到底部
+   * 获取过滤后的网站列表
    */
+  getFilteredSites() {
+    if (!this.searchKeyword) {
+      return this.sites;
+    }
+    const keyword = this.searchKeyword.toLowerCase();
+    return this.sites.filter(site =>
+      site.name.toLowerCase().includes(keyword) ||
+      site.urlPattern.toLowerCase().includes(keyword)
+    );
+  }
+
   renderSites(scrollToBottom = false) {
     const sitesList = document.getElementById('sitesList');
     const emptyState = document.getElementById('emptyState');
@@ -125,34 +162,68 @@ class SidePanelManager {
       return;
     }
 
-    if (this.sites.length === 0) {
+    const filtered = this.getFilteredSites();
+
+    if (filtered.length === 0) {
       if (emptyState) {
         emptyState.style.display = 'block';
+        emptyState.querySelector('p').textContent = this.searchKeyword ? '没有匹配的网站' : '还没有添加任何网站';
       }
       sitesList.innerHTML = '';
       if (emptyState) {
         sitesList.appendChild(emptyState);
       }
+      this.renderPagination(0);
       return;
     }
 
     if (emptyState) {
       emptyState.style.display = 'none';
     }
-    sitesList.innerHTML = '';
 
-    this.sites.forEach(site => {
+    // 分页计算
+    const totalPages = Math.ceil(filtered.length / this.pageSize);
+    if (this.currentPage > totalPages) {
+      this.currentPage = totalPages;
+    }
+    const startIndex = (this.currentPage - 1) * this.pageSize;
+    const pageItems = filtered.slice(startIndex, startIndex + this.pageSize);
+
+    sitesList.innerHTML = '';
+    pageItems.forEach(site => {
       const siteItem = this.createSiteItem(site);
       sitesList.appendChild(siteItem);
     });
 
-    // 如果需要滚动到底部，在渲染完成后滚动
+    this.renderPagination(filtered.length);
+
     if (scrollToBottom) {
-      // 使用 setTimeout 确保 DOM 更新完成后再滚动
       setTimeout(() => {
         sitesList.scrollTop = sitesList.scrollHeight;
       }, 0);
     }
+  }
+
+  /**
+   * 渲染分页控件
+   */
+  renderPagination(totalItems) {
+    const pagination = document.getElementById('pagination');
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    const pageInfo = document.getElementById('pageInfo');
+
+    const totalPages = Math.ceil(totalItems / this.pageSize);
+
+    if (totalPages <= 1) {
+      pagination.style.display = 'none';
+      return;
+    }
+
+    pagination.style.display = 'flex';
+    pageInfo.textContent = `${this.currentPage} / ${totalPages}`;
+    prevBtn.disabled = this.currentPage <= 1;
+    nextBtn.disabled = this.currentPage >= totalPages;
   }
 
   /**
@@ -173,6 +244,9 @@ class SidePanelManager {
         </div>
       </div>
       <div class="site-actions">
+        <button class="btn-icon" data-action="open" data-id="${site.id}" title="打开登录页面">
+          🔗
+        </button>
         <button class="btn-icon" data-action="edit" data-id="${site.id}" title="编辑">
           ✏️
         </button>
@@ -183,6 +257,10 @@ class SidePanelManager {
     `;
 
     // 绑定事件
+    item.querySelector('[data-action="open"]').addEventListener('click', () => {
+      this.openLoginUrl(site);
+    });
+
     item.querySelector('[data-action="edit"]').addEventListener('click', () => {
       this.editSite(site.id);
     });
@@ -214,6 +292,7 @@ class SidePanelManager {
       modalTitle.textContent = '编辑网站';
       document.getElementById('siteName').value = site.name;
       document.getElementById('urlPattern').value = site.urlPattern;
+      document.getElementById('loginUrl').value = site.loginUrl || '';
       // 回显解密后的账号和密码
       document.getElementById('username').value = site.username || '';
       const passwordInput = document.getElementById('password');
@@ -272,6 +351,7 @@ class SidePanelManager {
   async saveSite() {
     const name = document.getElementById('siteName').value.trim();
     const urlPattern = document.getElementById('urlPattern').value.trim();
+    const loginUrl = document.getElementById('loginUrl').value.trim();
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
     const autoFill = document.getElementById('autoFill').checked;
@@ -286,6 +366,7 @@ class SidePanelManager {
       const siteData = {
         name,
         urlPattern,
+        loginUrl,
         username,
         password,
         autoFill,
@@ -532,6 +613,20 @@ class SidePanelManager {
     } catch (error) {
       // 静默处理错误
       alert('填充失败: ' + error.message);
+    }
+  }
+
+  /**
+   * 打开登录页面链接
+   */
+  openLoginUrl(site) {
+    let url = site.loginUrl;
+    if (!url) {
+      // fallback: 使用 urlPattern 去掉末尾通配符
+      url = site.urlPattern.replace(/[*?]+$/, '');
+    }
+    if (url) {
+      chrome.tabs.create({ url });
     }
   }
 
