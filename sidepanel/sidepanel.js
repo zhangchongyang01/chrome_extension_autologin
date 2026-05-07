@@ -81,7 +81,19 @@ class SidePanelManager {
     document.getElementById('searchInput').addEventListener('input', (e) => {
       this.searchKeyword = e.target.value.trim();
       this.currentPage = 1;
+      document.getElementById('searchClearBtn').style.display = e.target.value ? 'flex' : 'none';
       this.renderSites();
+    });
+
+    // 搜索清空按钮
+    document.getElementById('searchClearBtn').addEventListener('click', () => {
+      const input = document.getElementById('searchInput');
+      input.value = '';
+      this.searchKeyword = '';
+      this.currentPage = 1;
+      document.getElementById('searchClearBtn').style.display = 'none';
+      this.renderSites();
+      input.focus();
     });
 
     // 分页按钮事件
@@ -140,17 +152,19 @@ class SidePanelManager {
   }
 
   /**
-   * 获取过滤后的网站列表
+   * 获取过滤后的网站列表（置顶项按 pinnedAt 降序排在最前）
    */
   getFilteredSites() {
-    if (!this.searchKeyword) {
-      return this.sites;
+    let list = this.sites;
+    if (this.searchKeyword) {
+      const keyword = this.searchKeyword.toLowerCase();
+      list = list.filter(site =>
+        site.name.toLowerCase().includes(keyword) ||
+        site.urlPattern.toLowerCase().includes(keyword)
+      );
     }
-    const keyword = this.searchKeyword.toLowerCase();
-    return this.sites.filter(site =>
-      site.name.toLowerCase().includes(keyword) ||
-      site.urlPattern.toLowerCase().includes(keyword)
-    );
+    // 置顶排序：pinnedAt 大的（后置顶）排在最前，未置顶（0）排在后面
+    return [...list].sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
   }
 
   renderSites(scrollToBottom = false) {
@@ -231,7 +245,8 @@ class SidePanelManager {
    */
   createSiteItem(site) {
     const item = document.createElement('div');
-    item.className = 'site-item';
+    const isPinned = !!site.pinnedAt;
+    item.className = 'site-item' + (isPinned ? ' pinned' : '');
     item.innerHTML = `
       <div class="site-info">
         <h3>${this.escapeHtml(site.name)}</h3>
@@ -241,9 +256,13 @@ class SidePanelManager {
             ${site.autoFill ? '自动填充' : '手动填充'}
           </span>
           ${site.autoLogin ? '<span class="badge badge-info">自动登录</span>' : ''}
+          ${isPinned ? '<span class="badge badge-info">已置顶</span>' : ''}
         </div>
       </div>
       <div class="site-actions">
+        <button class="btn-icon ${isPinned ? 'pinned-active' : ''}" data-action="pin" data-id="${site.id}" title="${isPinned ? '取消置顶' : '置顶'}">
+          ${isPinned ? '📍' : '📌'}
+        </button>
         <button class="btn-icon" data-action="open" data-id="${site.id}" title="打开登录页面">
           🔗
         </button>
@@ -257,6 +276,10 @@ class SidePanelManager {
     `;
 
     // 绑定事件
+    item.querySelector('[data-action="pin"]').addEventListener('click', () => {
+      this.togglePin(site.id);
+    });
+
     item.querySelector('[data-action="open"]').addEventListener('click', () => {
       this.openLoginUrl(site);
     });
@@ -613,6 +636,36 @@ class SidePanelManager {
     } catch (error) {
       // 静默处理错误
       alert('填充失败: ' + error.message);
+    }
+  }
+
+  /**
+   * 切换置顶状态
+   */
+  async togglePin(siteId) {
+    const site = this.sites.find(s => s.id === siteId);
+    if (!site) return;
+
+    const newPinnedAt = site.pinnedAt ? 0 : Date.now();
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'updateSite',
+        site: { id: siteId, pinnedAt: newPinnedAt }
+      });
+      if (response && response.success) {
+        const index = this.sites.findIndex(s => s.id === siteId);
+        if (index !== -1 && response.site) {
+          this.sites[index] = response.site;
+          this.renderSites();
+        } else {
+          await this.loadSites();
+        }
+      } else {
+        alert('置顶操作失败: ' + (response?.error || '未知错误'));
+      }
+    } catch (error) {
+      alert('置顶操作失败: ' + error.message);
     }
   }
 

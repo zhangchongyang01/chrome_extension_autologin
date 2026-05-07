@@ -120,7 +120,8 @@ async function handleSaveSite(site) {
       username: encryptedUsername,
       password: encryptedPassword,
       autoFill: site.autoFill !== undefined ? site.autoFill : true,
-      autoLogin: site.autoLogin !== undefined ? site.autoLogin : false
+      autoLogin: site.autoLogin !== undefined ? site.autoLogin : false,
+      pinnedAt: site.pinnedAt || 0
     };
 
     sites.push(newSite);
@@ -164,7 +165,8 @@ async function handleUpdateSite(site) {
       username: encryptedUsername,
       password: encryptedPassword,
       autoFill: site.autoFill !== undefined ? site.autoFill : sites[index].autoFill,
-      autoLogin: site.autoLogin !== undefined ? site.autoLogin : sites[index].autoLogin
+      autoLogin: site.autoLogin !== undefined ? site.autoLogin : sites[index].autoLogin,
+      pinnedAt: site.pinnedAt !== undefined ? site.pinnedAt : (sites[index].pinnedAt || 0)
     };
 
     await chrome.storage.local.set({ sites });
@@ -360,7 +362,8 @@ async function handleExportSitesWithDownload() {
         username: username,
         password: password,
         autoFill: site.autoFill,
-        autoLogin: site.autoLogin
+        autoLogin: site.autoLogin,
+        pinnedAt: site.pinnedAt || 0
       };
     }));
     
@@ -463,7 +466,8 @@ async function handleImportSites(importedSites) {
         username: encryptedUsername,
         password: encryptedPassword,
         autoFill: site.autoFill !== undefined ? site.autoFill : true,
-        autoLogin: site.autoLogin !== undefined ? site.autoLogin : false
+        autoLogin: site.autoLogin !== undefined ? site.autoLogin : false,
+        pinnedAt: site.pinnedAt || 0
       };
     }));
     
