@@ -38,6 +38,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
+  } else if (request.action === 'duplicateSite') {
+    handleDuplicateSite(request.siteId)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   } else if (request.action === 'updateSite') {
     handleUpdateSite(request.site)
       .then(result => sendResponse(result))
@@ -189,6 +194,35 @@ async function handleDeleteSite(siteId) {
     await chrome.storage.local.set({ sites: filtered });
 
     return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 复制网站配置，并将副本插入源配置之后
+ */
+async function handleDuplicateSite(siteId) {
+  try {
+    const result = await chrome.storage.local.get(['sites']);
+    const sites = result.sites || [];
+    const sourceIndex = sites.findIndex(site => site.id === siteId);
+
+    if (sourceIndex === -1) {
+      return { success: false, error: '网站配置不存在' };
+    }
+
+    const sourceSite = sites[sourceIndex];
+    const duplicatedSite = {
+      ...sourceSite,
+      id: generateId(),
+      name: `${sourceSite.name} - 副本`
+    };
+
+    sites.splice(sourceIndex + 1, 0, duplicatedSite);
+    await chrome.storage.local.set({ sites });
+
+    return { success: true, site: duplicatedSite, sourceIndex };
   } catch (error) {
     return { success: false, error: error.message };
   }

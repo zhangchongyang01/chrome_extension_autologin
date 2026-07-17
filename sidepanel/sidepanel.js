@@ -247,7 +247,11 @@ class SidePanelManager {
     const item = document.createElement('div');
     const isPinned = !!site.pinnedAt;
     item.className = 'site-item' + (isPinned ? ' pinned' : '');
+    item.dataset.siteId = site.id;
     item.innerHTML = `
+      <button class="btn-icon btn-duplicate" data-action="duplicate" data-id="${site.id}" title="复制当前配置" aria-label="复制当前配置">
+        <span aria-hidden="true">⧉</span>
+      </button>
       <div class="site-info">
         <h3>${this.escapeHtml(site.name)}</h3>
         <p class="site-url">${this.escapeHtml(site.urlPattern)}</p>
@@ -276,6 +280,10 @@ class SidePanelManager {
     `;
 
     // 绑定事件
+    item.querySelector('[data-action="duplicate"]').addEventListener('click', (event) => {
+      this.duplicateSite(site.id, event.currentTarget);
+    });
+
     item.querySelector('[data-action="pin"]').addEventListener('click', () => {
       this.togglePin(site.id);
     });
@@ -340,6 +348,38 @@ class SidePanelManager {
 
     if (modal) {
       modal.style.display = 'flex';
+    }
+
+    if (!site) {
+      this.prefillCurrentTabUrl();
+    }
+  }
+
+  /**
+   * 使用当前激活网页地址预填新增表单
+   */
+  async prefillCurrentTabUrl() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const currentUrl = tab?.url || '';
+
+      // 仅预填普通网页，忽略 chrome://、edge://、扩展页等内部页面
+      if (!/^https?:\/\//i.test(currentUrl) || this.editingSiteId !== null) {
+        return;
+      }
+
+      const urlPatternInput = document.getElementById('urlPattern');
+      const loginUrlInput = document.getElementById('loginUrl');
+
+      // 查询期间若用户已经开始输入，则保留用户内容
+      if (urlPatternInput && !urlPatternInput.value) {
+        urlPatternInput.value = currentUrl;
+      }
+      if (loginUrlInput && !loginUrlInput.value) {
+        loginUrlInput.value = currentUrl;
+      }
+    } catch (error) {
+      console.error('获取当前网页地址失败:', error);
     }
   }
 
@@ -469,6 +509,98 @@ class SidePanelManager {
       }
       this.openModal(site);
     }
+  }
+
+  /**
+   * 复制网站配置
+   */
+  async duplicateSite(siteId, button) {
+    if (!button || button.disabled) {
+      return;
+    }
+
+    const originalContent = button.innerHTML;
+    button.disabled = true;
+    button.classList.add('is-loading');
+    button.innerHTML = '<span aria-hidden="true">…</span>';
+    button.setAttribute('aria-label', '正在复制配置');
+
+    try {
+      let response = await chrome.runtime.sendMessage({
+        action: 'duplicateSite',
+        siteId
+      });
+
+      // 兼容尚未刷新到 duplicateSite 消息处理器的后台 Service Worker
+      if (!response) {
+        response = await this.duplicateSiteWithExistingActions(siteId);
+        response.usedFallback = true;
+      }
+
+      if (!response.success || !response.site) {
+        throw new Error(response.error || '后台未返回复制结果，请重新加载扩展后重试');
+      }
+
+      // 重新读取后台列表，避免与 storage 变化监听产生重复插入
+      await this.loadSites();
+
+      this.searchKeyword = '';
+      const searchInput = document.getElementById('searchInput');
+      const searchClearBtn = document.getElementById('searchClearBtn');
+      if (searchInput) searchInput.value = '';
+      if (searchClearBtn) searchClearBtn.style.display = 'none';
+
+      const duplicateIndex = this.getFilteredSites().findIndex(site => site.id === response.site.id);
+      this.currentPage = Math.max(1, Math.floor(duplicateIndex / this.pageSize) + 1);
+      this.renderSites();
+
+      requestAnimationFrame(() => {
+        const duplicatedItem = document.querySelector(`[data-site-id="${response.site.id}"]`);
+        if (duplicatedItem) {
+          duplicatedItem.classList.add('just-duplicated');
+          duplicatedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
+    } catch (error) {
+      button.innerHTML = originalContent;
+      button.disabled = false;
+      button.classList.remove('is-loading');
+      button.setAttribute('aria-label', '复制当前配置');
+      alert('复制失败: ' + error.message);
+    }
+  }
+
+  /**
+   * 使用现有消息接口兼容复制配置
+   */
+  async duplicateSiteWithExistingActions(siteId) {
+    const sourceSite = this.sites.find(site => site.id === siteId);
+    if (!sourceSite) {
+      return { success: false, error: '找不到要复制的网站配置' };
+    }
+
+    const credentials = await chrome.runtime.sendMessage({
+      action: 'getDecryptedCredentials',
+      siteId
+    });
+
+    if (!credentials || !credentials.success) {
+      return { success: false, error: credentials?.error || '无法读取网站凭证' };
+    }
+
+    return await chrome.runtime.sendMessage({
+      action: 'saveSite',
+      site: {
+        name: `${sourceSite.name} - 副本`,
+        urlPattern: sourceSite.urlPattern,
+        loginUrl: sourceSite.loginUrl || '',
+        username: credentials.username,
+        password: credentials.password,
+        autoFill: sourceSite.autoFill,
+        autoLogin: sourceSite.autoLogin,
+        pinnedAt: sourceSite.pinnedAt || 0
+      }
+    });
   }
 
   /**

@@ -245,15 +245,16 @@ body {
 
 /* Site Item */
 .site-item {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: 22px 16px 16px;
   margin-bottom: 12px;
   background: white;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
 }
 
 .site-item:hover {
@@ -342,6 +343,72 @@ body {
 .btn-icon:hover {
   opacity: 1;
   background: #f0f0f0;
+}
+
+.btn-icon:focus-visible {
+  opacity: 1;
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+}
+
+.btn-icon:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.btn-duplicate {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #59606b;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.btn-duplicate:hover {
+  color: #5568d3;
+  background: #eef0ff;
+}
+
+.btn-duplicate.is-loading {
+  animation: duplicate-pulse 0.8s ease-in-out infinite alternate;
+}
+
+.site-item.just-duplicated {
+  animation: duplicate-highlight 1.2s ease-out;
+}
+
+@keyframes duplicate-pulse {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes duplicate-highlight {
+  0% {
+    background: #eef0ff;
+    border-color: #667eea;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.16);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-duplicate.is-loading,
+  .site-item.just-duplicated {
+    animation: none;
+  }
+
+  .site-item,
+  .btn-icon {
+    transition: none;
+  }
 }
 
 /* Pagination */
