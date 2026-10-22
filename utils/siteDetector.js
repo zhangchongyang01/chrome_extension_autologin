@@ -35,11 +35,12 @@ class SiteDetector {
 
     for (const element of elements) {
       // 获取元素的文本内容（包括子元素）
-      const text = (element.textContent || element.value || element.innerText || '').trim().toLowerCase();
-      
+      // 去掉所有空白字符，兼容 "登 录"、"Sign In" 等带空格的写法
+      const text = (element.textContent || element.value || element.innerText || '').replace(/\s+/g, '').toLowerCase();
+
       // 检查是否包含任何关键词
       for (const keyword of keywords) {
-        if (text.includes(keyword.toLowerCase())) {
+        if (text.includes(keyword.replace(/\s+/g, '').toLowerCase())) {
           return element;
         }
       }
@@ -54,11 +55,15 @@ class SiteDetector {
   detectLoginElements() {
     const selectors = [
       // 常见的用户名输入框选择器
+      'input[autocomplete="username" i]',
       'input[type="text"][name*="user" i]',
       'input[type="text"][name*="name" i]',
       'input[type="text"][name*="email" i]',
       'input[type="text"][name*="account" i]',
       'input[type="text"][name*="login" i]',
+      'input[type="text"][placeholder*="用户名"]',
+      'input[type="text"][placeholder*="账号"]',
+      'input[type="text"][placeholder*="邮箱"]',
       'input[type="email"]',
       'input[id*="user" i]',
       'input[id*="name" i]',
@@ -80,67 +85,87 @@ class SiteDetector {
     }
 
     // 查找密码输入框
-    const passwordInput = document.querySelector(passwordSelector);
+    let passwordInput = document.querySelector(passwordSelector);
+
+    // 部分登录页（如令牌/动态口令登录）没有 password 类型输入框，
+    // 按特征关键字查找口令/验证码类输入框作为密码框
+    if (!passwordInput) {
+      const keywordRegex = /captcha|口令|密码|password|token|otp|动态/i;
+      const candidates = document.querySelectorAll('input[type="text"], input:not([type]), input[type="tel"]');
+      for (const input of candidates) {
+        if (input === usernameInput) continue;
+        const attrs = `${input.id} ${input.name} ${input.placeholder}`;
+        if (keywordRegex.test(attrs)) {
+          passwordInput = input;
+          break;
+        }
+      }
+    }
+
+    // 兜底：取同一表单内用户名输入框之后的第一个可见文本输入框
+    if (!passwordInput && usernameInput) {
+      const form = usernameInput.closest('form');
+      if (form) {
+        const textInputs = Array.from(
+          form.querySelectorAll('input[type="text"], input:not([type])')
+        ).filter(i => i !== usernameInput && (i.offsetWidth || i.offsetHeight));
+        if (textInputs.length > 0) {
+          passwordInput = textInputs[0];
+        }
+      }
+    }
 
     // 查找登录按钮
-    const loginButtonSelectors = [
-      'button[type="submit"]',
-      'input[type="submit"]',
-      // Ant Design 按钮选择器
-      'button.ant-btn-primary',
-      'button[nztype="primary"]',
-      'button[class*="btn-primary" i]',
-      'button[class*="ant-btn-primary" i]',
-      // 通用按钮选择器
-      'button[class*="login" i]',
-      'button[id*="login" i]',
-      'button[class*="submit" i]',
-      'a[class*="login" i]',
-      'a[id*="login" i]'
-    ];
-
+    const loginKeywords = ['登录', '登陆', 'Login', 'Sign in'];
     let loginButton = null;
-    for (const selector of loginButtonSelectors) {
-      try {
-        loginButton = document.querySelector(selector);
-        if (loginButton) {
-          // 检查按钮文本是否包含登录相关关键词
-          const text = (loginButton.textContent || loginButton.value || '').toLowerCase();
-          if (text.includes('登录') || text.includes('登陆') || 
-              text.includes('login') || text.includes('sign in') ||
-              selector.includes('submit') || selector.includes('primary')) {
-            break;
-          }
-        }
-      } catch (e) {
-        // 忽略无效选择器
+
+    // 1. 优先在包含用户名/密码输入框的表单内查找，避免误选表单外的提交按钮
+    const anchorInput = passwordInput || usernameInput;
+    const loginForm = anchorInput ? anchorInput.closest('form') : null;
+    if (loginForm) {
+      loginButton = loginForm.querySelector(
+        'button.ant-btn-primary, button[nztype="primary"], button[class*="btn-primary" i]'
+      );
+      if (!loginButton) {
+        loginButton = this.findButtonByText(
+          loginKeywords,
+          loginForm.querySelectorAll('button, input[type="submit"], a')
+        );
+      }
+      if (!loginButton) {
+        loginButton = loginForm.querySelector('button[type="submit"], input[type="submit"]');
       }
     }
 
-    // 如果没找到，尝试通过文本内容查找按钮
+    // 2. 全局按文本内容查找
     if (!loginButton) {
-      loginButton = this.findButtonByText(['登录', '登陆', 'Login', 'Sign in', 'Sign In']);
+      loginButton = this.findButtonByText(loginKeywords);
     }
 
-    // 如果还没找到，尝试在表单内查找
+    // 3. 全局按常见类名/ID 查找
     if (!loginButton) {
-      const forms = document.querySelectorAll('form');
-      for (const form of forms) {
-        if (form.querySelector('input[type="password"]')) {
-          // 先尝试标准选择器
-          loginButton = form.querySelector('button[type="submit"], input[type="submit"]');
+      const classSelectors = [
+        'button.ant-btn-primary',
+        'button[nztype="primary"]',
+        'button[class*="btn-primary" i]',
+        'button[class*="login" i]',
+        'button[id*="login" i]',
+        'a[class*="login" i]',
+        'a[id*="login" i]'
+      ];
+      for (const selector of classSelectors) {
+        try {
+          loginButton = document.querySelector(selector);
           if (loginButton) break;
-          
-          // 再尝试 Ant Design 按钮
-          loginButton = form.querySelector('button.ant-btn-primary, button[nztype="primary"]');
-          if (loginButton) break;
-          
-          // 最后尝试文本匹配
-          const formButtons = form.querySelectorAll('button, input[type="submit"], a');
-          loginButton = this.findButtonByText(['登录', '登陆', 'Login', 'Sign in', 'Sign In'], formButtons);
-          if (loginButton) break;
+        } catch (e) {
+          // 忽略无效选择器
         }
       }
+    }
+
+    // 4. 兜底：页面上的任意提交按钮
+    if (!loginButton) {
+      loginButton = document.querySelector('button[type="submit"], input[type="submit"]');
     }
 
     return {

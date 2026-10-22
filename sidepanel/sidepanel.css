@@ -647,6 +647,67 @@ form {
   background: #5568d3;
 }
 
+/* 默认凭证规则 */
+.rules-hint {
+  font-size: 12px;
+  color: #999;
+  margin: 0;
+  padding: 16px 24px 0;
+  line-height: 1.5;
+}
+
+.rules-list {
+  padding: 12px 24px 0;
+  margin-bottom: 0;
+}
+
+.rule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: #fafafa;
+}
+
+.rule-item .rule-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-item .rule-pattern {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  word-break: break-all;
+}
+
+.rule-item .rule-credentials {
+  font-size: 12px;
+  color: #777;
+  word-break: break-all;
+}
+
+.rule-item .rule-edit,
+.rule-item .rule-delete {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+}
+
+.rules-empty {
+  font-size: 13px;
+  color: #999;
+  text-align: center;
+  padding: 12px 0;
+}
+
 /* Scrollbar */
 .sites-list::-webkit-scrollbar,
 .modal-content::-webkit-scrollbar {

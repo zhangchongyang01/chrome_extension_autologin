@@ -233,6 +233,40 @@ class PopupManager {
     if (modal) {
       modal.style.display = 'flex';
     }
+
+    if (!site) {
+      this.prefillDefaultCredentials();
+    }
+  }
+
+  /**
+   * 添加模式下，当前页面 URL 命中默认凭证规则时预填用户名和密码
+   */
+  async prefillDefaultCredentials() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const currentUrl = tab?.url || '';
+      if (!/^https?:\/\//i.test(currentUrl) || this.editingSiteId !== null) {
+        return;
+      }
+
+      const response = await chrome.runtime.sendMessage({
+        action: 'matchCredentialRule',
+        url: currentUrl
+      });
+      if (response && response.success && response.matched) {
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        if (usernameInput && !usernameInput.value) {
+          usernameInput.value = response.username;
+        }
+        if (passwordInput && !passwordInput.value) {
+          passwordInput.value = response.password;
+        }
+      }
+    } catch (error) {
+      console.error('匹配默认凭证规则失败:', error);
+    }
   }
 
   /**

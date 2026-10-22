@@ -5,7 +5,9 @@
 class SidePanelManager {
   constructor() {
     this.sites = [];
+    this.credentialRules = [];
     this.editingSiteId = null;
+    this.editingRuleId = null;
     this.searchKeyword = '';
     this.currentPage = 1;
     this.pageSize = 10;
@@ -75,6 +77,28 @@ class SidePanelManager {
     // 文件选择事件
     document.getElementById('importFileInput').addEventListener('change', (e) => {
       this.handleFileSelect(e);
+    });
+
+    // 默认凭证规则按钮
+    document.getElementById('rulesBtn').addEventListener('click', () => {
+      this.openRulesModal();
+    });
+
+    // 关闭规则模态框
+    document.getElementById('closeRulesModalBtn').addEventListener('click', () => {
+      this.closeRulesModal();
+    });
+
+    document.getElementById('rulesModal').addEventListener('click', (e) => {
+      if (e.target.id === 'rulesModal') {
+        this.closeRulesModal();
+      }
+    });
+
+    // 添加规则表单提交
+    document.getElementById('ruleForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.addCredentialRule();
     });
 
     // 搜索输入事件
@@ -378,8 +402,190 @@ class SidePanelManager {
       if (loginUrlInput && !loginUrlInput.value) {
         loginUrlInput.value = currentUrl;
       }
+
+      // 按默认凭证规则预填用户名和密码
+      await this.prefillDefaultCredentials(currentUrl);
     } catch (error) {
       console.error('获取当前网页地址失败:', error);
+    }
+  }
+
+  /**
+   * 根据 URL 命中默认凭证规则时，预填用户名和密码
+   */
+  async prefillDefaultCredentials(url) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'matchCredentialRule',
+        url
+      });
+      if (response && response.success && response.matched) {
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        // 不覆盖用户已输入的内容
+        if (usernameInput && !usernameInput.value) {
+          usernameInput.value = response.username;
+        }
+        if (passwordInput && !passwordInput.value) {
+          passwordInput.value = response.password;
+        }
+      }
+    } catch (error) {
+      console.error('匹配默认凭证规则失败:', error);
+    }
+  }
+
+  /**
+   * 打开默认凭证规则模态框
+   */
+  async openRulesModal() {
+    const modal = document.getElementById('rulesModal');
+    if (!modal) return;
+    await this.loadCredentialRules();
+    modal.style.display = 'flex';
+  }
+
+  /**
+   * 关闭默认凭证规则模态框
+   */
+  closeRulesModal() {
+    document.getElementById('rulesModal').style.display = 'none';
+    document.getElementById('ruleForm').reset();
+    this.resetRuleFormMode();
+  }
+
+  /**
+   * 恢复规则表单为添加模式
+   */
+  resetRuleFormMode() {
+    this.editingRuleId = null;
+    document.getElementById('ruleSubmitBtn').textContent = '添加规则';
+  }
+
+  /**
+   * 加载默认凭证规则
+   */
+  async loadCredentialRules() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getCredentialRules' });
+      if (response && response.success) {
+        this.credentialRules = response.rules || [];
+      } else {
+        this.credentialRules = [];
+      }
+    } catch (error) {
+      console.error('加载默认凭证规则失败:', error);
+      this.credentialRules = [];
+    }
+    this.renderCredentialRules();
+  }
+
+  /**
+   * 渲染规则列表
+   */
+  renderCredentialRules() {
+    const rulesList = document.getElementById('rulesList');
+    if (!rulesList) return;
+
+    if (this.credentialRules.length === 0) {
+      rulesList.innerHTML = '<p class="rules-empty">暂无规则，请在下方添加</p>';
+      return;
+    }
+
+    rulesList.innerHTML = '';
+    this.credentialRules.forEach(rule => {
+      const item = document.createElement('div');
+      item.className = 'rule-item';
+      item.innerHTML = `
+        <div class="rule-info">
+          <div class="rule-pattern">${this.escapeHtml(rule.urlPattern)}</div>
+          <div class="rule-credentials">${this.escapeHtml(rule.username)} / ${this.escapeHtml(rule.password)}</div>
+        </div>
+        <button type="button" class="rule-edit" title="编辑规则">✏️</button>
+        <button type="button" class="rule-delete" title="删除规则">🗑️</button>
+      `;
+      item.querySelector('.rule-edit').addEventListener('click', () => {
+        this.editCredentialRule(rule.id);
+      });
+      item.querySelector('.rule-delete').addEventListener('click', () => {
+        this.deleteCredentialRule(rule.id);
+      });
+      rulesList.appendChild(item);
+    });
+  }
+
+  /**
+   * 编辑规则：回填到表单，切换为编辑模式
+   */
+  editCredentialRule(ruleId) {
+    const rule = this.credentialRules.find(r => r.id === ruleId);
+    if (!rule) return;
+
+    this.editingRuleId = ruleId;
+    document.getElementById('ruleUrlPattern').value = rule.urlPattern;
+    document.getElementById('ruleUsername').value = rule.username;
+    document.getElementById('rulePassword').value = rule.password;
+    document.getElementById('ruleSubmitBtn').textContent = '保存修改';
+    document.getElementById('ruleUrlPattern').focus();
+  }
+
+  /**
+   * 提交规则表单（添加或保存编辑）
+   */
+  async addCredentialRule() {
+    const urlPattern = document.getElementById('ruleUrlPattern').value.trim();
+    const username = document.getElementById('ruleUsername').value.trim();
+    const password = document.getElementById('rulePassword').value;
+
+    if (!urlPattern || !username || !password) {
+      alert('请填写完整的规则信息');
+      return;
+    }
+
+    if (this.editingRuleId) {
+      const index = this.credentialRules.findIndex(r => r.id === this.editingRuleId);
+      if (index !== -1) {
+        this.credentialRules[index] = { id: this.editingRuleId, urlPattern, username, password };
+      }
+    } else {
+      this.credentialRules.push({ urlPattern, username, password });
+    }
+    await this.persistCredentialRules();
+    document.getElementById('ruleForm').reset();
+    this.resetRuleFormMode();
+  }
+
+  /**
+   * 删除规则
+   */
+  async deleteCredentialRule(ruleId) {
+    if (!confirm('确定要删除这条规则吗？')) {
+      return;
+    }
+    this.credentialRules = this.credentialRules.filter(rule => rule.id !== ruleId);
+    if (this.editingRuleId === ruleId) {
+      document.getElementById('ruleForm').reset();
+      this.resetRuleFormMode();
+    }
+    await this.persistCredentialRules();
+  }
+
+  /**
+   * 将当前规则列表保存到后台
+   */
+  async persistCredentialRules() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'saveCredentialRules',
+        rules: this.credentialRules
+      });
+      if (response && response.success) {
+        await this.loadCredentialRules();
+      } else {
+        alert('保存规则失败: ' + (response?.error || '未知错误'));
+      }
+    } catch (error) {
+      alert('保存规则失败: ' + error.message);
     }
   }
 

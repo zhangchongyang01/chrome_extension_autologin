@@ -13,10 +13,13 @@ class AutoLoginContent {
   async init() {
     // 监听 URL 变化（SPA 应用）
     this.observeUrlChanges();
-    
+
     // 初始检测
     await this.checkAndFill();
-    
+
+    // 监听 DOM 变化，兼容 React/Vue 等框架晚渲染的登录表单
+    this.watchForLoginForm();
+
     // 监听输入框点击事件，支持手动点击触发填充
     this.setupInputClickListeners();
     
@@ -53,6 +56,30 @@ class AutoLoginContent {
       this.isFilled = false;
       setTimeout(() => this.checkAndFill(), 500);
     });
+  }
+
+  /**
+   * 监听 DOM 变化，等待登录表单渲染出来后重试填充
+   * 部分页面（如 React 渲染的 Ant Design 表单）在 document_idle 时表单尚未渲染
+   */
+  watchForLoginForm() {
+    const startTime = Date.now();
+    let timer = null;
+
+    const observer = new MutationObserver(() => {
+      if (this.isFilled || Date.now() - startTime > 15000) {
+        observer.disconnect();
+        return;
+      }
+      // 节流，避免频繁 DOM 变化导致重复检测
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        this.checkAndFill();
+      }, 500);
+    });
+
+    observer.observe(document.documentElement, { subtree: true, childList: true });
   }
 
   /**

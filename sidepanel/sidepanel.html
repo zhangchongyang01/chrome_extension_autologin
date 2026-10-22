@@ -11,6 +11,7 @@
     <header class="header">
       <h1>自动登录助手</h1>
       <div class="header-actions">
+        <button id="rulesBtn" class="btn btn-icon-header" title="默认凭证规则">⚙️</button>
         <button id="exportBtn" class="btn btn-icon-header" title="导出配置">⬆️</button>
         <button id="importBtn" class="btn btn-icon-header" title="导入配置">⬇️</button>
         <button id="addSiteBtn" class="btn btn-primary">+ 添加网站</button>
@@ -102,6 +103,34 @@
           <div class="form-actions">
             <button type="button" class="btn btn-secondary" id="cancelBtn">取消</button>
             <button type="submit" class="btn btn-primary" id="saveBtn">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <!-- 默认凭证规则管理 -->
+    <div class="modal" id="rulesModal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>默认凭证规则</h2>
+          <button class="close-btn" id="closeRulesModalBtn">&times;</button>
+        </div>
+        <p class="rules-hint">添加网站时，若当前页面 URL 命中规则，自动预填对应的用户名和密码；多条命中时取第一条。</p>
+        <div class="rules-list" id="rulesList"></div>
+        <form id="ruleForm">
+          <div class="form-group">
+            <label for="ruleUrlPattern">URL 模式</label>
+            <input type="text" id="ruleUrlPattern" required placeholder="例如: *://10.*">
+          </div>
+          <div class="form-group">
+            <label for="ruleUsername">默认用户名</label>
+            <input type="text" id="ruleUsername" required placeholder="例如: admin">
+          </div>
+          <div class="form-group">
+            <label for="rulePassword">默认密码</label>
+            <input type="text" id="rulePassword" required placeholder="默认密码">
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="ruleSubmitBtn">添加规则</button>
           </div>
         </form>
       </div>

@@ -2,6 +2,12 @@
  * 后台脚本 - 处理存储和消息传递
  */
 
+// 内置的默认凭证规则（用于添加网站时按 URL 预填用户名/密码）
+const DEFAULT_CREDENTIAL_RULES = [
+  { urlPattern: '*://10.*', username: 'admin', password: '/Nsf0cus!#%' },
+  { urlPattern: '*://192.168.*', username: 'admin', password: '/Nsf0cus!#%' }
+];
+
 // 初始化存储
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['sites'], (result) => {
@@ -9,7 +15,38 @@ chrome.runtime.onInstalled.addListener(() => {
       chrome.storage.local.set({ sites: [] });
     }
   });
+  ensureCredentialRules();
 });
+
+/**
+ * 确保默认凭证规则已初始化（老版本升级时懒初始化）
+ */
+async function ensureCredentialRules() {
+  const result = await chrome.storage.local.get(['credentialRules']);
+  if (result.credentialRules) {
+    return result.credentialRules;
+  }
+  const seeded = await Promise.all(DEFAULT_CREDENTIAL_RULES.map(async (rule) => ({
+    id: generateId(),
+    urlPattern: rule.urlPattern,
+    username: await encryptValue(rule.username),
+    password: await encryptValue(rule.password)
+  })));
+  await chrome.storage.local.set({ credentialRules: seeded });
+  return seeded;
+}
+
+/**
+ * URL 通配符匹配（与 content script 中的实现一致）
+ */
+function matchUrlPattern(url, pattern) {
+  if (!pattern) return false;
+  const regexPattern = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp('^' + regexPattern + '$', 'i').test(url);
+}
 
 // 点击扩展图标时打开侧边栏
 chrome.action.onClicked.addListener((tab) => {
@@ -55,6 +92,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   } else if (request.action === 'importSites') {
     handleImportSites(request.sites)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  } else if (request.action === 'getCredentialRules') {
+    handleGetCredentialRules()
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  } else if (request.action === 'saveCredentialRules') {
+    handleSaveCredentialRules(request.rules)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  } else if (request.action === 'matchCredentialRule') {
+    handleMatchCredentialRule(request.url)
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
@@ -529,6 +581,75 @@ async function handleImportSites(importedSites) {
     };
   } catch (error) {
     console.error('导入网站配置失败:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 获取默认凭证规则（解密后返回）
+ */
+async function handleGetCredentialRules() {
+  try {
+    const rules = await ensureCredentialRules();
+    const decryptedRules = await Promise.all(rules.map(async (rule) => ({
+      id: rule.id,
+      urlPattern: rule.urlPattern,
+      username: await decryptValue(rule.username),
+      password: await decryptValue(rule.password)
+    })));
+    return { success: true, rules: decryptedRules };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 保存默认凭证规则（整体覆盖，加密存储）
+ */
+async function handleSaveCredentialRules(rules) {
+  try {
+    if (!Array.isArray(rules)) {
+      return { success: false, error: '规则数据格式错误：必须是数组' };
+    }
+    for (const rule of rules) {
+      if (!rule.urlPattern || rule.username === undefined || rule.password === undefined) {
+        return { success: false, error: '规则格式错误：URL 模式、用户名、密码均为必填' };
+      }
+    }
+    const encryptedRules = await Promise.all(rules.map(async (rule) => ({
+      id: rule.id || generateId(),
+      urlPattern: rule.urlPattern.trim(),
+      username: await encryptValue(rule.username),
+      password: await encryptValue(rule.password)
+    })));
+    await chrome.storage.local.set({ credentialRules: encryptedRules });
+    return { success: true, count: encryptedRules.length };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 匹配 URL 对应的默认凭证（取第一条命中的规则）
+ */
+async function handleMatchCredentialRule(url) {
+  try {
+    if (!url) {
+      return { success: true, matched: false };
+    }
+    const rules = await ensureCredentialRules();
+    for (const rule of rules) {
+      if (matchUrlPattern(url, rule.urlPattern)) {
+        return {
+          success: true,
+          matched: true,
+          username: await decryptValue(rule.username),
+          password: await decryptValue(rule.password)
+        };
+      }
+    }
+    return { success: true, matched: false };
+  } catch (error) {
     return { success: false, error: error.message };
   }
 }
