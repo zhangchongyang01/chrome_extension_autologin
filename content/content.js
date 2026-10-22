@@ -198,18 +198,8 @@ class AutoLoginContent {
       this.currentSite = detection.site;
       this.elements = detection.elements;
       await this.fillForm();
-    } else {
-      // 如果没有匹配的配置，尝试使用第一个配置
-      const result = await chrome.storage.local.get(['sites']);
-      const sites = result.sites || [];
-      if (sites.length > 0) {
-        this.currentSite = sites[0];
-        this.elements = siteDetector.detectLoginElements();
-        if (this.elements.hasLoginForm) {
-          await this.fillForm();
-        }
-      }
     }
+    // URL 不匹配任何网站配置时不填充，避免在非匹配页面泄露凭证
   }
 
   /**

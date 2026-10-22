@@ -190,33 +190,20 @@ class SiteDetector {
         this.matchUrlPattern(currentUrl, site.urlPattern)
       );
 
-      // 如果 URL 匹配，检查页面元素
-      if (urlMatchedSites.length > 0) {
-        const elements = this.detectLoginElements();
-        
-        // 如果检测到登录表单，返回第一个匹配的配置
-        if (elements.hasLoginForm) {
-          return {
-            site: urlMatchedSites[0],
-            elements: elements
-          };
-        }
+      // URL 不匹配任何配置时直接返回 null，不在其他路径页面填充
+      if (urlMatchedSites.length === 0) {
+        return null;
       }
 
-      // 如果 URL 不匹配，但检测到登录表单，也返回（用于手动添加）
+      // URL 匹配，检查页面元素
       const elements = this.detectLoginElements();
-      if (elements.hasLoginForm && sites.length > 0) {
-        // 尝试模糊匹配 URL
-        for (const site of sites) {
-          const siteDomain = new URL(site.urlPattern.split('*')[0]).hostname;
-          const currentDomain = new URL(currentUrl).hostname;
-          if (siteDomain === currentDomain) {
-            return {
-              site: site,
-              elements: elements
-            };
-          }
-        }
+
+      // 只有检测到登录表单才返回匹配的配置
+      if (elements.hasLoginForm) {
+        return {
+          site: urlMatchedSites[0],
+          elements: elements
+        };
       }
 
       return null;
